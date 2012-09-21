@@ -1,0 +1,47 @@
+This file contains message digests of all files listed in MANIFEST,
+signed via the Module::Signature module, version 0.68.
+
+To verify the content in this distribution, first make sure you have
+Module::Signature installed, then type:
+
+    % cpansign -v
+
+It will check each file's integrity, as well as the signature's
+validity.  If "==> Signature verified OK! <==" is not displayed,
+the distribution may already have been compromised, and you should
+not run its Makefile.PL or Build.PL.
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+SHA1 9dfe3bd54f6204e2b2f844f8223218afec4d2dbe Build.PL
+SHA1 0ac24466fee19084d7cffc03a449c239eb9d8ae2 MANIFEST
+SHA1 30e534ae81ad853a28c67b46735808d8e5a92b31 MANIFEST.SKIP
+SHA1 11678e8eaeec472dd76de34a073073d863996b7d META.json
+SHA1 d943a38530bd93aa4a148e21be058247a2a29cdb META.yml
+SHA1 84ed757df8b7e0e2bfd98a77ae072d6df4f4f007 Makefile.PL
+SHA1 aa7b65d99008681d3105ee0907e44a206dc8146c README
+SHA1 4f9dc09ca27cebd28f7b96a5f7065fba7e6397d1 bin/audit_thrift
+SHA1 a1c46a052d5ae288cfb404b7df947ffebad3b572 bin/generate_docs.pl
+SHA1 02ed6ff0c9a1a551b3cfb42f234151c2d9fdf564 lib/Tapir.pm
+SHA1 d0db8167c02e5ffc9f0899e7407729aa715c5c49 lib/Tapir/Exceptions.pm
+SHA1 8cf8457b1941752a52c766876e5a3e985ae2e763 lib/Tapir/Logger.pm
+SHA1 5e01128616c24920a301c5c25dde653b389369d1 lib/Tapir/MethodCall.pm
+SHA1 57b844312159005534b0155ab82c6a8d5aeac89c lib/Tapir/Server.pm
+SHA1 5c9f77ca257e978b4ab3fc7eeec442efd8fb1ba4 lib/Tapir/Server/Handler.pm
+SHA1 4b474198aabf5d72ce4a34f7af1abd6f47d86902 lib/Tapir/Server/Handler/Class.pm
+SHA1 3313113914f6f9091d4ccf5854012911099d547e lib/Tapir/Server/Handler/Signatures.pm
+SHA1 e0e9730a964d0c76dadc783e9bc9bac33cb1ec49 lib/Tapir/Server/Transport.pm
+SHA1 cbf068018d62e71316d18b5ef163ac7decddce2f lib/Tapir/Validator.pm
+SHA1 785628dd65a85514aa481ebe0e4afa1538e40790 t/001_handler_plain.t
+SHA1 ca9098b4f7d0be6f2ac8b28f804905eb9c7a7aa2 t/002_handler_signatures.t
+SHA1 1b1cb97def6dec5b4e851ec999ad8c492ef3c57f t/003_methodcall.t
+SHA1 c2fea18ac3070596ae135afeb984cafcd530cb41 t/004_handler_call.t
+SHA1 a190ed8eeca85ee40d1c0af1640256d718dda7d3 t/thrift/example.thrift
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.12 (Darwin)
+
+iEYEARECAAYFAlBcnMcACgkQHHIpFH/pKkL1bACfWZOzJnlLWbL89PLUY5sebEk/
+0RgAn1/p2QR+sR/OLEaOhLPH95mfWQKi
+=q3F9
+-----END PGP SIGNATURE-----
