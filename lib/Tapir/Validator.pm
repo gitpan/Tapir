@@ -2,37 +2,39 @@ package Tapir::Validator;
 
 use strict;
 use warnings;
+use Data::Dumper;
 use Tapir::Exceptions;
+use Tapir::Validator::Length;
+use Tapir::Validator::Range;
+use Tapir::Validator::Regex;
 
 sub new {
-	my ($class, %self) = @_;
+    my ($class, %self) = @_;
 
-	if (! keys %self) {
-		%self = (
-			audit_types => 1,
-			warn_unused_types => 0,
-			docs => {
-				require => {
-					return => 0,      # @return not required
-					params => 0,  # @param's must match with method arguments
-					methods => 1, # every method must be documented
+    if (! keys %self) {
+        %self = (
+            audit_types => 1,
+            warn_unused_types => 0,
+            docs => {
+                require => {
+                    return => 0,      # @return not required
+                    params => 0,  # @param's must match with method arguments
+                    methods => 1, # every method must be documented
 
-					typedefs => 0,
-					exceptions => 0,
-					structs => 0,
-					rest => 0,
-				},
-			},
-		);
-	}
-	$self{docs}{flags} ||= {
-		# List the '@' keys that are flags and will have no value following them
-		flags => {
-			optional => 1,
-			utf8     => 1,
-		},
-	};
-	return bless \%self, $class;
+                    typedefs => 0,
+                    exceptions => 0,
+                    structs => 0,
+                    rest => 0,
+                },
+            },
+        );
+    }
+    $self{docs}{flags} ||= {
+        # List the '@' keys that are flags and will have no value following them
+        optional => 1,
+        utf8     => 1,
+    };
+    return bless \%self, $class;
 }
 
 =head2 audit_idl_document ($thrift_idl_document)
@@ -58,14 +60,14 @@ sub audit_idl_document {
             }
         }
 
-		my $audit_error = $self->_audit_parse_structured_comment($child);
+        my $audit_error = $self->_audit_parse_structured_comment($child);
 
         if ($child->isa('Thrift::IDL::TypeDef')
             || $child->isa('Thrift::IDL::Struct')
             || $child->isa('Thrift::IDL::Enum')
             || $child->isa('Thrift::IDL::Senum')
         ) {
-			push @audit, $audit_error if $audit_error && $self->{docs}{require}{typedefs};
+            push @audit, $audit_error if $audit_error && $self->{docs}{require}{typedefs};
             $self->{custom_types}{ $child->full_name } = $child;
         }
 
@@ -145,52 +147,73 @@ sub _audit_parse_structured_comment {
         return "$object has no comments";
     }
 
-    my $comment = join "\n", map { $_->escaped_value } @comments;
+    my $comment = join "\n", map { $_->escaped_value_with_whitespace } @comments;
+
+    # If it's a multi-line comment, remove the common whitespace in front of each line
+    if ($comment =~ m/\n/) {
+        $comment =~ s/^[ ]*\n?//;
+        $comment =~ s/\n?[ ]*$//;
+
+        my ($common_whitespace) = $comment =~ m/^(\s+)/;
+        my @lines = split /\n/, $comment;
+        my @match = grep { /^($common_whitespace|$)/ } @lines;
+        if (int @lines == int @match) {
+            $comment = join "\n", map { s/^$common_whitespace//; $_ } @lines;
+        }
+    }
+    else {
+        $comment =~ s/^\s+//;
+        $comment =~ s/\s+$//;
+    }
 
     my %doc;
     $object->{doc} = \%doc;
-
-    foreach my $line (split /\n\s*/, $comment) {
-        my @parts = split /\s* (\@\w+) \s*/x, $line;
+    {
+        my @parts = split /(\@\w+)/x, $comment;
         while (defined (my $part = shift @parts)) {
             next if ! length $part;
             my ($javadoc_key) = $part =~ m{^\@(\w+)$};
 
             if (! $javadoc_key) {
+                $part =~ s/\s+$//;
                 if (! defined $doc{description}) {
                     $doc{description} = $part;
                 }
                 else {
                     $doc{description} .= "\n" . $part;
                 }
-				next;
+                next;
             }
 
-			if ($self->{docs}{flags}{$javadoc_key}) {
-				$doc{$javadoc_key} = 1;
-				next;
-			}
+            if ($self->{docs}{flags}{$javadoc_key}) {
+                $doc{$javadoc_key} = 1;
+                next;
+            }
 
-			my $value = shift @parts;
-			if ($javadoc_key eq 'param') {
-				my ($param, $description) = $value =~ m{^(\w+) \s* (.*)$}x;
-				$doc{param}{$param} = $description || '';
-			}
-			elsif ($javadoc_key eq 'validate') {
-				my ($param, $args) = $value =~ m{^(\w+) \s* (.*)$}x;
-				push @{ $doc{validate}{$param} }, $args || '';
-			}
-			elsif ($javadoc_key eq 'rest') {
-				my ($method, $route) = split /\s+/, $value, 2;
-				if ($method !~ /^(any|get|put|post|head|delete)$/i) {
-					return "\@rest method '$method' is invalid";
-				}
-				$doc{rest} = { method => lc($method), route => $route };
-			}
-			else {
-				push @{ $doc{$javadoc_key} }, $value;
-			}
-		}
+            my $value = shift @parts;
+            next unless defined $value && length $value;
+
+            $value =~ s/^\s+//;
+            if ($javadoc_key eq 'param') {
+                my ($param, $description) = $value =~ m{^(\w+) \s* (.*)$}x;
+                $doc{param}{$param} = $description || '';
+            }
+            elsif ($javadoc_key eq 'validate') {
+                my ($param, $args) = $value =~ m{^(\w+) \s* (.*)$}x;
+                my $class = 'Tapir::Validator::' . ucfirst($param);
+                push @{ $doc{validators} }, $class->new_from_string($args);
+            }
+            elsif ($javadoc_key eq 'rest') {
+                my ($method, $route) = split /\s+/, $value, 2;
+                if ($method !~ /^(any|get|put|post|head|delete)$/i) {
+                    return "\@rest method '$method' is invalid";
+                }
+                $doc{rest} = { method => lc($method), route => $route };
+            }
+            else {
+                push @{ $doc{$javadoc_key} }, $value;
+            }
+        }
     }
 
     # Allow fields/arguments to have structured comments and to describe themselves
@@ -214,39 +237,39 @@ sub _audit_parse_structured_comment {
         }
     }
 
-	# Check for completeness of the documentation
+    # Check for completeness of the documentation
     if ($object->isa('Thrift::IDL::Method')) {
-		if ($self->{docs}{require}{return}) {
-			# Non-void return value requires description
-			my $return = $object->returns;
-			unless ($return->isa('Thrift::IDL::Type::Base') && $return->name eq 'void') {
-				if (! $doc{return}) {
-					return "$object has a non-void return value but no docs for it";
-				}
-			}
-		}
+        if ($self->{docs}{require}{return}) {
+            # Non-void return value requires description
+            my $return = $object->returns;
+            unless ($return->isa('Thrift::IDL::Type::Base') && $return->name eq 'void') {
+                if (! $doc{return}) {
+                    return "$object has a non-void return value but no docs for it";
+                }
+            }
+        }
 
-		if ($self->{docs}{require}{params}) {
-			# Check the params (make a copy as I'll be destructive)
-			my %params = %{ $doc{param} };
-			my @fields = map { @{ $object->$_ } } grep { $object->can($_) } qw(arguments fields);
-			foreach my $field (@fields) {
-				if (defined $params{$field->name}) {
-					delete $params{$field->name};
-				}
-				else {
-					return "$object doesn't document argument $field";
-				}
-			}
-			foreach my $remaining (keys %params) {
-				return "$object documented param $remaining which doesn't exist in the object fields";
-			}
-		}
+        if ($self->{docs}{require}{params}) {
+            # Check the params (make a copy as I'll be destructive)
+            my %params = %{ $doc{param} };
+            my @fields = map { @{ $object->$_ } } grep { $object->can($_) } qw(arguments fields);
+            foreach my $field (@fields) {
+                if (defined $params{$field->name}) {
+                    delete $params{$field->name};
+                }
+                else {
+                    return "$object doesn't document argument $field";
+                }
+            }
+            foreach my $remaining (keys %params) {
+                return "$object documented param $remaining which doesn't exist in the object fields";
+            }
+        }
 
-		if ($self->{docs}{require}{rest} && ! $doc{rest}) {
-			return "$object doesn't provide a \@rest route";
-		}
-	}
+        if ($self->{docs}{require}{rest} && ! $doc{rest}) {
+            return "$object doesn't provide a \@rest route";
+        }
+    }
 
     return;
 }
@@ -264,25 +287,32 @@ sub validate_parser_message {
     }
 }
 
-sub _validate_parser_message_argument {
-    my ($self, $idl, $opt, $spec, $field, $message) = @_;
+sub validate_parser_reply {
+    my ($self, $message, $opt) = @_;
+    $opt ||= {};
+
+    my $idl = $message->method->idl_doc; 
+    my $return = $message->arguments->field_named('return_value');
+
+    if ($return->value->isa('Thrift::Parser::FieldSet')) {
+        foreach my $spec (@{ $return->idl->fields }) {
+            my $field = $return->value->id($spec->id);
+            $self->_validate_parser_message_argument($idl, $opt, $spec, $field, $message);
+        }
+    }
+    else {
+        die "FIXME";
+    }
+}
+
+sub doc_from_idl_object {
+    my ($self, $idl, $spec) = @_;
 
     my @docs;
     push @docs, $spec->{doc} if defined $spec->{doc};
 
-    if (defined $field && $spec->type->isa('Thrift::IDL::Type::Custom')) {
+    if ($spec->type->isa('Thrift::IDL::Type::Custom')) {
         my $ref_object = $idl->object_full_named($spec->type->full_name);
-        if ($ref_object && $ref_object->isa('Thrift::IDL::Struct')) {
-            my $field_set = $field->value;
-            foreach my $child_spec (@{ $ref_object->fields }) {
-                my $child_field = $field_set->id($child_spec->id);
-                if (! defined $child_field) {
-                    next;
-                }
-                #print "Child spec/field: " . Dumper({ field_set => $field_set, child_field => $child_field, child_spec => $child_spec });
-                $self->_validate_parser_message_argument($idl, $opt, $child_spec, $child_field, $message);
-            }
-        }
         push @docs, $ref_object->{doc} if defined $ref_object->{doc};
     }
 
@@ -306,10 +336,9 @@ sub _validate_parser_message_argument {
         }
 
         # Validate
-        foreach my $key (keys %{ $sub{validate} }) {
-            push @{ $doc->{validate}{$key} }, @{ $sub{validate}{$key} };
+        if ($sub{validators}) {
+            push @{ $doc->{validators} }, @{ delete $sub{validators} };
         }
-        delete $sub{validate};
 
         # All else is array
         foreach my $key (keys %sub) {
@@ -317,9 +346,32 @@ sub _validate_parser_message_argument {
         }
     }
 
-	if ($doc->{default}) {
-		# TODO
-	}
+    return $doc;
+}
+
+sub _validate_parser_message_argument {
+    my ($self, $idl, $opt, $spec, $field, $message) = @_;
+
+    my $doc = $self->doc_from_idl_object($idl, $spec);
+
+    if (defined $field && $spec->type->isa('Thrift::IDL::Type::Custom')) {
+        my $ref_object = $idl->object_full_named($spec->type->full_name);
+        if ($ref_object && $ref_object->isa('Thrift::IDL::Struct')) {
+            my $field_set = $field->value;
+            foreach my $child_spec (@{ $ref_object->fields }) {
+                my $child_field = $field_set->id($child_spec->id);
+                if (! defined $child_field) {
+                    next;
+                }
+                #print "Child spec/field: " . Dumper({ field_set => $field_set, child_field => $child_field, child_spec => $child_spec });
+                $self->_validate_parser_message_argument($idl, $opt, $child_spec, $child_field, $message);
+            }
+        }
+    }
+
+    if ($doc->{default}) {
+        # TODO
+    }
 
     if (! defined $field && ! $doc->{optional} && ! $spec->optional) {
         Tapir::InvalidArgument->throw(
@@ -346,95 +398,9 @@ sub _validate_parser_message_argument {
         );
     }
 
-    return unless $doc->{validate};
-
-    foreach my $key (keys %{ $doc->{validate} }) {
-        if ($key eq 'regex' && $field->isa('Thrift::Parser::Type::string')) {
-            foreach my $value (@{ $doc->{validate}{$key} }) {
-                my $regex;
-                if (my ($lq, $body, $rq, $opts) = $value =~ m{^\s* (\S)(.+?)(\S) ([xsmei]*) \s*$}x) {
-                    my $left_brackets  = '[{(';
-                    my $right_brackets = ']})';
-                    if ($lq eq $rq || (
-                        index($left_brackets, $lq) >= 0 &&
-                        index($left_brackets, $lq) == index($right_brackets, $rq)
-                    )) {
-                        $regex = eval "qr{$body}$opts";
-                        die $@ if $@;
-                    }
-                }
-                if (! $regex) {
-                    Tapir::InvalidSpec->throw(
-                        error => "Can't parse regex pattern from '$value'",
-                        key => ref($field),
-                    );
-                }
-                if (defined $field->value && $field->value !~ $regex) {
-                    Tapir::InvalidArgument->throw(
-                        error => "Argument $desc doesn't pass regex $value",
-                        key => $field->name, value => $field->value,
-                    );
-                }
-            }
-        }
-        elsif ($key eq 'length' && $field->isa('Thrift::Parser::Type::string')) {
-            foreach my $value (@{ $doc->{validate}{$key} }) {
-                my ($min, $max) = $value =~ /^\s* (\d*) \s*-\s* (\d*) \s*$/x;
-                $min = undef unless length $min;
-                $max = undef unless length $max;
-                if (! defined $min && ! defined $max) {
-                    Tapir::InvalidSpec->throw(
-                        error => "Can't parse length range from '$value' (format '\\d* - \\d*'",
-                        key => ref($field),
-                    );
-                }
-                my $len = length $field->value;
-                if (defined $min && $len < $min) {
-                    Tapir::InvalidArgument->throw(
-                        error => "Argument $desc is shorter than permitted ($min)",
-                        key => $field->name, value => $field->value,
-                    );
-                }
-                if (defined $max && $len > $max) {
-                    Tapir::InvalidArgument->throw(
-                        error => "Argument $desc is longer than permitted ($max)",
-                        key => $field->name, value => $field->value,
-                    );
-                }
-            }
-        }
-        elsif ($key eq 'range' && $field->isa('Thrift::Parser::Type::Number')) {
-            foreach my $value (@{ $doc->{validate}{$key} }) {
-                my ($min, $max) = $value =~ /^\s* (\d*) \s*-\s* (\d*) \s*$/x;
-                $min = undef unless length $min;
-                $max = undef unless length $max;
-                if (! defined $min && ! defined $max) {
-                    Tapir::InvalidSpec->throw(
-                        error => "Can't parse number range from '$value' (format '\\d* - \\d*'",
-                        key => ref($field),
-                    );
-                }
-                if (defined $min && $field->value < $min) {
-                    Tapir::InvalidArgument->throw(
-                        error => "Argument $desc is smaller than permitted ($min)",
-                        key => $field->name, value => $field->value,
-                    );
-                }
-                if (defined $max && $field->value > $max) {
-                    Tapir::InvalidArgument->throw(
-                        error => "Argument $desc is longer than permitted ($max)",
-                        key => $field->name, value => $field->value,
-                    );
-                }
-            }
-        }
-        else {
-            Tapir::InvalidSpec->throw(
-                error => "Validate key '$key' and field type '".ref($field)."' is not valid",
-                key => ref($field),
-            );
-
-        }
+    return unless $doc->{validators};
+    foreach my $validator (@{ $doc->{validators} }) {
+        $validator->validate_field($field, $desc);
     }
 }
 
